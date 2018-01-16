@@ -4,4 +4,5 @@
 .Ruserdata
 
 **/Data/*.csv
+**/Data/*.txt
 **/Data/*.feather
