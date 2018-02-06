@@ -1,0 +1,51 @@
+---
+
+title: "Address Cleaning in R for MCNW Map Project"
+output: html_notebook
+
+
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+<style>
+p.caption {
+  font-size: 0.8em;
+}
+</style>
+
+##**Overview**##
+This document outlines the process by which data is cleaned in preparation for geocoding and visualization.  I assume that a Vistashare query has been run that produces a .csv file with rows for each business and their corresponding address.
+
+Issues with the addresses in the data include:
+
+  * Incomplete address (no street name, city, etc.)
+  * PO boxes, apartment and suite numbers.
+  * Multiline addresses that cause parsing problems
+  
+![*Examples of bad addresses in the data*](Reports\\badaddresses.png)
+
+The first goal is to remove all newline characters, they cause nothing but problems.
+
+```{r, eval = FALSE}
+raw <- read.csv("Data/all_addresses_012218.csv")
+
+
+regexpr <- "(?<=[,[:space:]])Apt[\\.[:space:]]*#{0,1}[A-z0-9]+|[,[:space:]]*SUITE[[:space:]]+[0-9A-z]+|#\\s*[0-9A-z]+|ste\\.*\\s+[0-9A-z\\.-]+"
+
+#eliminate duplicate rows and perform various regex substitution and filtering
+address_info <- raw %>% group_by(System.Name.ID) %>%
+  unique() %>%                                                                              
+  ungroup() %>% 
+  mutate(Full.Address = gsub("\\n", ", ", Full.Address, ignore.case = TRUE, perl = TRUE)) %>%
+  mutate(Full.Address = gsub(regexpr, "", Full.Address, ignore.case = TRUE, perl = TRUE)) %>% 
+  filter(Full.Address != "", 
+         !grepl("P[\\.[:space:]]*O[\\.[:space:]]+Box", Full.Address, ignore.case = TRUE), 
+         !grepl("^[A-Z]|^\\n", Full.Address, ignore.case = TRUE),
+         grepl("[0-9]", Full.Address, ignore.case = TRUE),
+         grepl("[A-Z]", Full.Address, ignore.case = TRUE)) %>%
+  rename(full_name = ï..Full.Name.Last.First.Mdl)
+```  
