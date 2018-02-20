@@ -21,51 +21,62 @@ address_info <- raw %>% group_by(System.Name.ID) %>%
   rename(full_name = ï..Full.Name.Last.First.Mdl)
   
 
-
-#### Remove suite numbers
-
 write.csv(address_info, "Data/addresses_metadata_012218.csv", row.names = FALSE)
 
-########## Data Cleanup for Proper Format ########
+#######################################################################
+####THE ABOVE FILE IS RUN THROUGH A GEOCODING SERVICE AT THIS POINT####
+#######################################################################
 
-
+###########################################
 ###### POST(AFTER ARCGIS) PROCESSING ######
+###########################################
 
+##INITIAL OUTPUT FROM ARCGIS##
+##THIS SHOULD INCLUDE LAT-LONG, OTHER GEODATA, AND A UNIQUE ID FOR EACH BUSINESS###
 allfields <- read_excel("C:/Users/Daniel/Google Drive/MercyCorps/MCNW/Mapping/Data/output_table_012218.xls")
 
+#### LIMIT TO OREGON AND WASHINGTON ####
 trimmed <- allfields %>% select(LongLabel, Region, Subregion, Nbrhd, X, Y, DisplayX, DisplayY, 70:83) %>%
            filter(Region %in% c("Oregon", "Washington"))
 
+#write a csv file which can be used in powerBI
 write.csv(trimmed, "Data/coords_metadata_012218.csv")
 
+###########################################
+###########################################
+###########################################
 
-###### IDA RECIPIENT DATASET ####
 
-IDA <- read.csv("Data/IDA_join_cols_0202.csv")
+##################################################################
+####Create file with business locations and total loan amounts####
+##################################################################
+
+loan_amounts <- read_csv("Data/biz_loan_amounts.csv")
+
+loan_amounts <- loan_amounts %>% filter(!is.na(`Loan Amount`)) %>%
+  distinct(Loan.ID.Number, .keep_all = TRUE) %>%
+  group_by(`System Name ID`) %>%
+  summarise(total_loans = sum(`Loan Amount`))
+
 biz_locs <- read.csv("Data/coords_metadata_012218.csv")
 
-IDA_coords <- IDA %>% left_join(biz_locs, by = c("Related.System.Name.ID" = "System_Nam")) %>%
+biz_locs <- biz_locs %>% left_join(loan_amounts, by = c("System_Nam"= "System Name ID")) %>% View()
+  select(-c(14:23))
+
+write.csv(biz_locs, "Data/coords_loansums_0214.csv")
+
+###################################
+###### IDA RECIPIENT DATASET ######
+###################################
+
+IDA <- read.csv("Data/IDA_join_cols_0214.csv")
+biz_locs <- read.csv("Data/coords_loansums_0214.csv")
+
+IDA_coords <- IDA %>% left_join(biz_locs, by = c("Related.System.Name.ID" = "System_Nam")) %>% 
   filter(!is.na(DisplayX)) %>%
-  distinct(System.Name.ID, .keep_all = TRUE) %>%
-  select(-Alternate_, - business.of..as.partner..Related.Full.Address)
+  distinct(System.Name.ID, .keep_all = TRUE) 
 
 write.csv(IDA_coords, "Data/IDA_and_loanapp_locs.csv")
-
-address_locs <- read_csv("Data/Geocoded_Addresses_1.txt")
-
-address_locs <- address_locs %>% filter(latitude > 40, longitude < -101) %>% select(-color)
-
-write.csv(address_locs, "Data/addresses_coords.csv", row.names = FALSE)
-
-####### JOIN MICROTEST DATA TO BIZ DATA #######
-
-microtest <- read.csv("Data/workbook_allcols.csv")
-
-trimmed <- trimmed %>% left_join("workbook_allcols.csv")
-
-#######
-
-
 
 #39.78373
 #-100.4459

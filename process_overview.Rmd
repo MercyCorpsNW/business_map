@@ -1,24 +1,30 @@
 ---
-
 title: "Address Cleaning in R for MCNW Map Project"
-output: html_notebook
-
-
+output:
+  html_document:
+    code_folding: hide
+  html_notebook: default
 ---
 
-```{r}
+
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
 library(tidyverse)
 library(readxl)
+library(knitr)
+library(kableExtra)
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, eval = FALSE)
+
+
 ```
 
-<style>
-p.caption {
-  font-size: 0.8em;
-}
-</style>
 
-##**Overview**##
-This document outlines the process by which data is cleaned in preparation for geocoding and visualization.  I assume that a Vistashare query has been run that produces a .csv file with rows for each business and their corresponding address.
+###**Overview**###
+This document outlines the process by which data is cleaned in preparation for geocoding and visualization.  The first and most basic step is to **run a vistashare query that has a column of addresses**.  You can include as many other columns as you want.  
+
+This cleaning process is simply an example, you may perform more or less cleaning, keep certain address types, *whatever*.  The ultimate goal is to *run addresses through a geocoding service (arcGIS, mapquest, etc.) and obtain latitude and longitude coordinates*.  It is up to the map maintainer to decide what is acceptable in terms of number of addresses that are unable to be geocoded or might be lost in the cleaning process.  
+
+One more time to hammer home the simplicity of the end goal:  **All we are trying to do is produce a .csv file that has a columns for latitude and longitude and any other variables you feel are relevant (loan amount, ethnicity, activity status etc.).**
 
 Issues with the addresses in the data include:
 
@@ -26,14 +32,25 @@ Issues with the addresses in the data include:
   * PO boxes, apartment and suite numbers.
   * Multiline addresses that cause parsing problems
   
+  
 ![*Examples of bad addresses in the data*](Reports\\badaddresses.png)
 
-The first goal is to remove all newline characters, they cause nothing but problems.
+\vspace{3mm}
 
-```{r, eval = FALSE}
+The raw data loaded into R:
+```{r, echo = TRUE, eval = TRUE}
+#Load the raw query from Vistashare
 raw <- read.csv("Data/all_addresses_012218.csv")
 
+raw[1:5,1:4] %>% kable("html") %>%
+                kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover"))
+```
 
+The important fields are the address, and the unique ID for each business (this query outputs it as System.Name.ID).  I proceed to clean the Full.Address field which is a string column.
+
+My first task was to remove all newline characters, they cause nothing but problems.  If an output .csv file looks funny, it is often caused by newline characters or commas within a field.  Other cleaning operations included filtering out rows whose addresses were empty, included only letters or only numbers, or that were PO boxes.  The following code accomplishes this using mostly dplyr and grepl.
+
+```{r}
 regexpr <- "(?<=[,[:space:]])Apt[\\.[:space:]]*#{0,1}[A-z0-9]+|[,[:space:]]*SUITE[[:space:]]+[0-9A-z]+|#\\s*[0-9A-z]+|ste\\.*\\s+[0-9A-z\\.-]+"
 
 #eliminate duplicate rows and perform various regex substitution and filtering
@@ -49,3 +66,81 @@ address_info <- raw %>% group_by(System.Name.ID) %>%
          grepl("[A-Z]", Full.Address, ignore.case = TRUE)) %>%
   rename(full_name = ï..Full.Name.Last.First.Mdl)
 ```  
+
+The data is then fed into a geocoding service, in my case I had arcGIS's service available, which returned latitude/longitude coordinates.  The resulting table was exported to a .csv file which is read into R below.  I filter the data to only Oregon and Washington and write the data to a .csv file.  A snapshot of the data written to disk is shown below.
+
+```{r, eval = TRUE}
+##INITIAL OUTPUT FROM ARCGIS##
+##THIS SHOULD INCLUDE LAT-LONG, OTHER GEODATA, AND A UNIQUE ID FOR EACH BUSINESS###
+allfields <- read_excel("C:/Users/Daniel/Google Drive/MercyCorps/MCNW/Mapping/Data/output_table_012218.xls")
+
+#### LIMIT TO OREGON AND WASHINGTON ####
+trimmed <- allfields %>% select(LongLabel, Region, Subregion, Nbrhd, X, Y, DisplayX, DisplayY, 70:83) %>%
+           filter(Region %in% c("Oregon", "Washington"))
+
+trimmed[1:5,1:8] %>% kable("html") %>%
+                kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover"))
+```
+
+```{r}
+#write a csv file which can be used in powerBI
+write.csv(trimmed, "Data/coords_metadata_012218.csv")
+```
+
+##**Appending Other Metadata**##
+
+This section details some of the steps I took to add relevant data to the map.  The important takeaway here is that if you want to add data, you need to do one of two things.
+
+  * Include the data as a column in the original .csv file that has the addresses.  That column will be carried along for the geocoding ride.
+  * Get a table which includes the data you want as well a column with the unique identifier for the business associated with each observation.
+
+The two additions below use the second option.
+
+\vspace{4mm}
+
+####**Loan Amounts**###
+A Vistashare query was run to get loan amounts for each business with the intent of displaying total loan amounts.  The result of the query, loaded into R, and with rows having no loan amount removed:
+
+```{r, eval = TRUE}
+loan_amounts <- read_csv("Data/biz_loan_amounts.csv")
+
+loan_amounts %>% filter(!is.na(`Loan Amount`)) %>% head(5) %>% kable("html") %>%
+                kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover"))
+```
+One can see that there are sometimes multiple rows for a single loan.  I collapsed the dataframe by keeping a single row per Loan ID, grouped the data by business ID (here called System Name ID), and then collapsed each group into a single row while simultaneously adding a column which contained the sum of all loans for that business.  The resulting table is simple the business ID and the corresponding loan total for that business.  This table was joined to the table containing the coordinates before putting it into power BI.
+
+```{r eval = TRUE}
+loan_amounts <- loan_amounts %>% filter(!is.na(`Loan Amount`)) %>%
+  distinct(Loan.ID.Number, .keep_all = TRUE) %>%
+  group_by(`System Name ID`) %>%
+  summarise(total_loans = sum(`Loan Amount`))
+
+loan_amounts %>% head() %>% kable("html") %>%
+  kable_styling(full_width = FALSE, position = "left", bootstrap_options = c("striped", "hover"))
+```
+####**code joining the two tables**####
+```{r, code_folding = "show"}
+biz_locs <- read.csv("Data/coords_metadata_012218.csv")
+
+biz_locs <- biz_locs %>% left_join(loan_amounts, by = c("System_Nam"= "System Name ID")) %>% View()
+  select(-c(14:23))
+
+write.csv(biz_locs, "Data/coords_loansums_0214.csv")
+```
+
+###**Role Type and Matched IDA Funds**###
+
+The next Vistashare query was run to get information on the client type, and matched IDA funds.  This was necessary because of limitations on what can be queried using related fields in Vistashare.  The important columns in this query included information on whether the client was active, how much(if any) matched IDA funds they had received, and what type of service we had provided to them.
+
+In many cases, the business could have been serviced in multiple ways by MCNW (i.e. with loans, IDA's, or classes), meaning that there were multiple rows corresponding to a certain business.  In this case we cant/dont want to summarize the data (how can we average or sum two roles?) so we keep it as a seperate table and define a relationship within powerBI using the business ID field. 
+
+```{r}
+IDA <- read.csv("Data/IDA_join_cols_0214.csv")
+biz_locs <- read.csv("Data/coords_loansums_0214.csv")
+
+IDA_coords <- IDA %>% left_join(biz_locs, by = c("Related.System.Name.ID" = "System_Nam")) %>% 
+  filter(!is.na(DisplayX)) %>%
+  distinct(System.Name.ID, .keep_all = TRUE) 
+
+write.csv(IDA_coords, "Data/IDA_and_loanapp_locs.csv")
+```
