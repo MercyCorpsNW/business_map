@@ -1,14 +1,17 @@
 library(tidyverse)
 library(readxl)
+library(fuzzjoin
+        )
 
 ####RAW FILE FROM VISTASHARE####
-raw <- read.csv("Data/all_addresses_012218.csv")
+raw <- read_csv("Data/all_addresses_0226.csv")
+colnames(raw) <- gsub(" ", "_", colnames(raw))
 
 
 regexpr <- "(?<=[,[:space:]])Apt[\\.[:space:]]*#{0,1}[A-z0-9]+|[,[:space:]]*SUITE[[:space:]]+[0-9A-z]+|#\\s*[0-9A-z]+|ste\\.*\\s+[0-9A-z\\.-]+"
 
 #eliminate duplicate rows and perform various regex substitution and filtering
-address_info <- raw %>% group_by(System.Name.ID) %>%
+address_info <- raw %>% group_by(System_Name_ID) %>%
   unique() %>%                                                                              
   ungroup() %>% 
   mutate(Full.Address = gsub(regexpr, "", Full.Address, ignore.case = TRUE, perl = TRUE)) %>% 
@@ -19,9 +22,18 @@ address_info <- raw %>% group_by(System.Name.ID) %>%
          grepl("[A-Z]", Full.Address, ignore.case = TRUE)) %>%  
   mutate(Full.Address = gsub("\\n", ", ", Full.Address, ignore.case = TRUE, perl = TRUE)) %>%
   rename(full_name = ï..Full.Name.Last.First.Mdl)
+
+####Keep bad addresses to preserve relevant metadata####
+address_info <- raw %>% group_by(System_Name_ID) %>%
+  distinct(System_Name_ID, .keep_all = TRUE) %>%                                                                              
+  ungroup() %>% 
+  mutate(Full_Address = gsub(regexpr, "", Full_Address, ignore.case = TRUE, perl = TRUE)) %>% 
+  mutate(Full_Address = gsub("\\n", ", ", Full_Address, ignore.case = TRUE, perl = TRUE)) %>%
+  mutate(Full_Address = ifelse(grepl("same as|home based|home-based", Full_Address, ignore.case = TRUE), Related_Full_Address, Full_Address)) %>%
+  rename(full_name = Full_Name_Last_First_Mdl)
   
 
-write.csv(address_info, "Data/addresses_metadata_012218.csv", row.names = FALSE)
+write_csv(address_info, "Data/addresses_metadata_0226.csv")
 
 #######################################################################
 ####THE ABOVE FILE IS RUN THROUGH A GEOCODING SERVICE AT THIS POINT####
@@ -33,14 +45,12 @@ write.csv(address_info, "Data/addresses_metadata_012218.csv", row.names = FALSE)
 
 ##INITIAL OUTPUT FROM ARCGIS##
 ##THIS SHOULD INCLUDE LAT-LONG, OTHER GEODATA, AND A UNIQUE ID FOR EACH BUSINESS###
-allfields <- read_excel("C:/Users/Daniel/Google Drive/MercyCorps/MCNW/Mapping/Data/output_table_012218.xls")
+allfields <- read_csv("Data/Export_Output_TableToExcel.csv")
 
 #### LIMIT TO OREGON AND WASHINGTON ####
-trimmed <- allfields %>% select(LongLabel, Region, Subregion, Nbrhd, X, Y, DisplayX, DisplayY, 70:83) %>%
-           filter(Region %in% c("Oregon", "Washington"))
-
+trimmed <- allfields %>% select(LongLabel, Region, Subregion, Nbrhd, X, Y, DisplayX, DisplayY, 61:70)
 #write a csv file which can be used in powerBI
-write.csv(trimmed, "Data/coords_metadata_012218.csv")
+write_csv(trimmed, "Data/coords_metadata_0226.csv")
 
 ###########################################
 ###########################################
@@ -52,31 +62,74 @@ write.csv(trimmed, "Data/coords_metadata_012218.csv")
 ##################################################################
 
 loan_amounts <- read_csv("Data/biz_loan_amounts.csv")
+colnames(loan_amounts) <- gsub(" ", "_", colnames(loan_amounts))
 
-loan_amounts <- loan_amounts %>% filter(!is.na(`Loan Amount`)) %>%
-  distinct(Loan.ID.Number, .keep_all = TRUE) %>%
-  group_by(`System Name ID`) %>%
-  summarise(total_loans = sum(`Loan Amount`))
+loan_amounts <- loan_amounts %>% filter(!is.na(Loan_Amount)) %>%
+  distinct(Loan_ID_Number, .keep_all = TRUE) %>%
+  group_by(System_Name_ID) %>%
+  summarise(total_loans = sum(Loan_Amount)) %>%
+  mutate(System_Name_ID=as.character(System_Name_ID))
 
-biz_locs <- read.csv("Data/coords_metadata_012218.csv")
+biz_locs <- read_csv("Data/coords_metadata_0226.csv") %>% 
+  mutate(System_Name_ID = as.character(System_Name_ID))
 
-biz_locs <- biz_locs %>% left_join(loan_amounts, by = c("System_Nam"= "System Name ID")) %>% View()
-  select(-c(14:23))
-
-write.csv(biz_locs, "Data/coords_loansums_0214.csv")
+biz_locs <- biz_locs %>% left_join(loan_amounts)
 
 ###################################
 ###### IDA RECIPIENT DATASET ######
 ###################################
 
-IDA <- read.csv("Data/IDA_join_cols_0214.csv")
-biz_locs <- read.csv("Data/coords_loansums_0214.csv")
+IDA <- read_csv("Data/IDA_join_cols_0221.csv")
+colnames(IDA) <- gsub(" ", "_", colnames(IDA))
 
-IDA_coords <- IDA %>% left_join(biz_locs, by = c("Related.System.Name.ID" = "System_Nam")) %>% 
+IDA_biz_totals <- IDA %>% 
+  filter(!is.na(IDA_Account_Lifetime_Summary_Match_Earned)) %>%
+  distinct(IDA_Account_ID, .keep_all = TRUE) %>%
+  group_by(Related_System_Name_ID) %>%
+  summarise(total_ida = sum(IDA_Account_Lifetime_Summary_Match_Earned))
+
+biz_locs <- biz_locs %>% left_join(IDA_biz_totals, by = c("System_Name_ID"= "Related_System_Name_ID"))
+
+#####WRITE TO DISK AFTER ATTACHING LOAN AND IDA TOTALS#####
+
+write_csv(biz_locs, "Data/coords_ida_loan_sums_0302.csv")
+
+##########LEFT JOIN TO IDA IF DESIRED###########
+
+IDA_coords <- IDA %>% left_join(biz_locs, by = c("Related System Name ID" = "System_Nam")) %>% 
   filter(!is.na(DisplayX)) %>%
   distinct(System.Name.ID, .keep_all = TRUE) 
 
 write.csv(IDA_coords, "Data/IDA_and_loanapp_locs.csv")
 
+####### Non-Biz-Metadata ######
+
+roles <- read_csv("Data/nonbiz_metadata_0227.csv")
+colnames(roles) <- gsub(" ", "_", colnames(roles))
+
+roles <- roles %>% group_by(System_Name_ID) %>%
+  select(-Role, -IDA_Account_Lifetime_Summary_Match_Earned) %>%
+  distinct() %>%
+  mutate(`3._Foundations_I_Intake.Hud_Income_Level` = ifelse(is.na(`3._Foundations_I_Intake.Hud_Income_Level`), `1._SBA_Client_Profile.Hud_Income_Level`, `3._Foundations_I_Intake.Hud_Income_Level`),
+         Ethnicity = ifelse(is.na(Ethnicity), `1._SBA_Client_Profile.Race_(Sba)`, Ethnicity)) %>%
+  mutate(Ethnicity = ifelse(Ethnicity == "American Indian/Alaska Native", "American Indian/Alaskan Native", Ethnicity),
+         Ethnicity = ifelse(Ethnicity == "Black or African American", "Black / African American", Ethnicity),
+         Ethnicity = ifelse(Ethnicity == "Other multiple race", "Other/Multiple", Ethnicity),
+         Ethnicity = ifelse(Ethnicity == "Chose not to respond", NA, Ethnicity)
+         )
+          
+roles <- roles %>% mutate(Related_System_Name_ID = paste(Related_System_Name_ID, collapse = ", ")) %>% distinct()
+
+
+#Join Region Data to Role Data
+demo_with_biz_region <- regex_left_join(roles, biz_locs %>% select(System_Name_ID, Subregion), by = c("Related_System_Name_ID" = "System_Name_ID"))
+
+demo_with_biz_region_anon <- demo_with_biz_region %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(-Full_Name_Last_First_Mdl, -System_Name_ID.x, -System_Name_ID.y, -Related_System_Name_ID)
+
+write_csv(roles, na = "", "Data/demographics_distinct_0227.csv")
+write_csv(demo_with_biz_region_anon, "Data/demographics_anonymous_0301.csv")
 #39.78373
 #-100.4459
