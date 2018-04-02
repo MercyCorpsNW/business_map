@@ -7,7 +7,7 @@ output:
 ---
 
 
-```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
+```{r setup, echo = TRUE, message = FALSE, warning = FALSE}
 library(tidyverse)
 library(readxl)
 library(knitr)
@@ -38,7 +38,7 @@ Issues with the addresses in the data include:
 \vspace{3mm}
 
 The raw data loaded into R:
-```{r, echo = TRUE, eval = TRUE}
+```{r, eval = TRUE}
 #Load the raw query from Vistashare
 raw <- read.csv("Data/all_addresses_012218.csv")
 
@@ -134,7 +134,7 @@ The next Vistashare query was run to get information on the client type, and mat
 
 In many cases, the business could have been serviced in multiple ways by MCNW (i.e. with loans, IDA's, or classes), meaning that there were multiple rows corresponding to a certain business.  In this case we cant/dont want to summarize the data (how can we average or sum two roles?) so we keep it as a seperate table and define a relationship within powerBI using the business ID field. 
 
-```{r}
+```{r, echo = TRUE}
 IDA <- read.csv("Data/IDA_join_cols_0214.csv")
 biz_locs <- read.csv("Data/coords_loansums_0214.csv")
 

@@ -14,14 +14,14 @@ regexpr <- "(?<=[,[:space:]])Apt[\\.[:space:]]*#{0,1}[A-z0-9]+|[,[:space:]]*SUIT
 address_info <- raw %>% group_by(System_Name_ID) %>%
   unique() %>%                                                                              
   ungroup() %>% 
-  mutate(Full.Address = gsub(regexpr, "", Full.Address, ignore.case = TRUE, perl = TRUE)) %>% 
-  filter(Full.Address != "", 
-         !grepl("P[\\.[:space:]]*O[\\.[:space:]]+Box", Full.Address, ignore.case = TRUE), 
-         !grepl("^[A-Z]|^\\n", Full.Address, ignore.case = TRUE),
-         grepl("[0-9]", Full.Address, ignore.case = TRUE),
-         grepl("[A-Z]", Full.Address, ignore.case = TRUE)) %>%  
-  mutate(Full.Address = gsub("\\n", ", ", Full.Address, ignore.case = TRUE, perl = TRUE)) %>%
-  rename(full_name = ï..Full.Name.Last.First.Mdl)
+  mutate(Full_Address = gsub(regexpr, "", Full_Address, ignore.case = TRUE, perl = TRUE)) %>% 
+  filter(Full_Address != "", 
+         !grepl("P[\\.[:space:]]*O[\\.[:space:]]+Box", Full_Address, ignore.case = TRUE), 
+         !grepl("^[A-Z]|^\\n", Full_Address, ignore.case = TRUE),
+         grepl("[0-9]", Full_Address, ignore.case = TRUE),
+         grepl("[A-Z]", Full_Address, ignore.case = TRUE)) %>%  
+  mutate(Full_Address = gsub("\\n", ", ", Full_Address, ignore.case = TRUE, perl = TRUE)) %>%
+  rename(full_name = Full_Name_Last_First_Mdl)
 
 ####Keep bad addresses to preserve relevant metadata####
 address_info <- raw %>% group_by(System_Name_ID) %>%
